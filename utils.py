@@ -446,7 +446,7 @@ Task: Predict the next POI ID for user_{user_id} based on their trajectory.
 
 Respond with a JSON dictionary in a markdown's fenced code block as follows:
 ```json
-{{"next_poi_id": ["value1", "value2", ..., "value{args.top_k}"]}
+{{"next_poi_id": ["value1", "value2", ..., "value{args.top_k}"]}}
 ```"""
 
     return user_id, prompt, label
