@@ -22,6 +22,13 @@ from prompt_provider import PromptProvider
 from ft_data import *
 from agentscope.message import Msg
 from agentscope.service import ServiceToolkit
+from config import (
+    DEFAULT_PORT_INVERSE,
+    DEFAULT_VLLM_HOST,
+    DATASET_MAX_ITEM,
+    DATASET_TRAIN_SAMPLES,
+    vllm_base_url,
+)
 
 
 # Helper functions for multiprocessing
@@ -42,7 +49,7 @@ def init_agents(args):
             "model_name": f"{args.api_type}",
             "api_key": "EMPTY",
             "client_args": {
-                "base_url": "http://localhost:7863/v1"
+                "base_url": vllm_base_url(args.host, args.port)
             },
             "generate_args": {
                 "temperature": 0.5,
@@ -57,7 +64,7 @@ def init_agents(args):
             "model_name": f"{args.api_type}",
             "api_key": "EMPTY",
             "client_args": {
-                "base_url": "http://localhost:7863/v1"
+                "base_url": vllm_base_url(args.host, args.port)
             },
             "generate_args": {
                 "temperature": 0.2,
@@ -386,8 +393,21 @@ def single_predict_worker(params):
     """
     try:
         selected_sample, args, user_to_candidate_map = params
-        user_id, subtrajectory_id, label, current_trajectory = parse_user_and_trajectory_train(
-            selected_sample.get('messages', []))  # Parse user ID and current trajectory from messages
+        # Author guidance: parse_user_and_trajectory is sufficient.
+        user_id, label, current_trajectory = parse_user_and_trajectory(
+            selected_sample.get('messages', [])
+        )
+        if user_id is None or label is None or current_trajectory is None:
+            raise ValueError("Failed to parse user_id/label/current_trajectory from sample.")
+        if isinstance(label, list):
+            if not label:
+                raise ValueError("Parsed label list is empty.")
+            label = label[0]
+        subtrajectory_id = "0"
+        if current_trajectory:
+            sub_match = re.search(r'"subtrajectory_id":\s*"?(\d+)"?', current_trajectory)
+            if sub_match:
+                subtrajectory_id = sub_match.group(1)
 
         # Initialize agents in this process
         generator, generator_value = init_agents(args)
@@ -406,7 +426,12 @@ def single_predict_worker(params):
         next_poi_info = [label_id, category, lat, lon]
         inverse_prompter = Inverse_prompter(args, user_id, subtrajectory_id, current_trajectory, next_poi_info)
         forward_prompter = Forwar_prompter(args, user_id, subtrajectory_id, current_trajectory, next_poi_info)
-        rag_candidates = user_to_candidate_map[user_id]
+        rag_candidates = user_to_candidate_map.get(user_id, [])
+        if not rag_candidates:
+            try:
+                rag_candidates = user_to_candidate_map.get(int(user_id), [])
+            except (TypeError, ValueError):
+                pass
         rag_candidates = [int(candidate) for candidate in rag_candidates[:100]]
 
         # Generate historical distribution
@@ -639,7 +664,7 @@ class InverseInferenceProcessor:
                 "messages": [
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": str(user_content3)},
-                    {"role": "assistant", "content": str(assistant_content)}
+                    {"role": "assistant", "content": str(assistant_content3)}
                 ]
             }
             entries3.append(entry_dict3)
@@ -829,14 +854,16 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32, help='Number of concurrent processes')
     parser.add_argument('--mode', type=str, default='train', help='Mode (train/test)')
     parser.add_argument('--save_id', type=str, default='N1', help='Save ID (N1-N...; T1-T...; C1-C...)')
+    parser.add_argument('--host', type=str, default=DEFAULT_VLLM_HOST, help='Host for API server')
+    parser.add_argument('--port', type=int, default=DEFAULT_PORT_INVERSE, help='Port for API server')
 
     args = parser.parse_args()
     dataset = args.dataset
 
     # Set dataset-specific parameters
-    args.max_item = {"nyc": 5091, "tky": 7851, "ca": 13630}.get(dataset, 5091)
+    args.max_item = DATASET_MAX_ITEM.get(dataset, 5091)
     if args.num_samples == 0:
-        args.num_samples = {"nyc": 3870, "tky": 11850, "ca": 6616}.get(dataset, 3870)  # train 3870, 11850, 6616
+        args.num_samples = DATASET_TRAIN_SAMPLES.get(dataset, 3870)
 
     print("Starting inverse inference with arguments:", args)
 
