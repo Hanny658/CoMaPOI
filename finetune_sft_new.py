@@ -23,6 +23,7 @@ import json
 import re
 import time
 import random
+from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Union
 
 import torch
@@ -50,6 +51,7 @@ from peft import get_peft_model, LoraConfig
 from datasets import load_dataset
 
 from utils import convert_content_to_string
+from config import DATASET_MAX_ITEM, FINETUNE_DATA_ROOT, FINETUNE_RESULTS_ROOT
 
 
 # Helper functions for data processing
@@ -644,6 +646,18 @@ def get_args():
     parser.add_argument("--type", default='merged', type=str, help="Training type (merged, agent1, agent2, agent3)")
     parser.add_argument("--unsloth", action="store_true", help="Use Unsloth acceleration (single GPU only, not compatible with phi3.5)")
     parser.add_argument('--op_str', type=str, default='4-14', help='Operation string for output directory naming')
+    parser.add_argument(
+        "--finetune_data_root",
+        type=str,
+        default=str(FINETUNE_DATA_ROOT),
+        help="Root path for fine-tune data",
+    )
+    parser.add_argument(
+        "--finetune_results_root",
+        type=str,
+        default=str(FINETUNE_RESULTS_ROOT),
+        help="Root path for fine-tune outputs",
+    )
 
     return parser.parse_args()
 
@@ -657,38 +671,41 @@ def main():
 
     # Parse arguments
     args = get_args()
+    data_root = Path(args.finetune_data_root)
+    results_root = Path(args.finetune_results_root)
+    dataset_root = data_root / args.dataset
 
     # Set up file paths for different agent types
-    agent1_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent1_train_samples.jsonl'
-    agent2_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent2_train_samples.jsonl'
-    agent3_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent3_train_samples.jsonl'
+    agent1_path = str(dataset_root / "agent1_train_samples.jsonl")
+    agent2_path = str(dataset_root / "agent2_train_samples.jsonl")
+    agent3_path = str(dataset_root / "agent3_train_samples.jsonl")
 
     # Process data based on agent type
     if args.type == 'agent1':
-        cleaned_train_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent1_train_samples_all.jsonl'
-        cleaned_test_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent1_train_samples_100.jsonl'
+        cleaned_train_file_path = str(dataset_root / "agent1_train_samples_all.jsonl")
+        cleaned_test_file_path = str(dataset_root / "agent1_train_samples_100.jsonl")
         DataProcessor.check_and_process_files(agent1_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
         args.data_path = cleaned_train_file_path
 
     elif args.type == 'agent2':
-        cleaned_train_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent2_train_samples_all.jsonl'
-        cleaned_test_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent2_train_samples_100.jsonl'
+        cleaned_train_file_path = str(dataset_root / "agent2_train_samples_all.jsonl")
+        cleaned_test_file_path = str(dataset_root / "agent2_train_samples_100.jsonl")
         DataProcessor.check_and_process_files(agent2_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
         args.data_path = cleaned_train_file_path
 
     elif args.type == 'agent3':
-        cleaned_train_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent3_train_samples_all.jsonl'
-        cleaned_test_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/agent3_train_samples_100.jsonl'
+        cleaned_train_file_path = str(dataset_root / "agent3_train_samples_all.jsonl")
+        cleaned_test_file_path = str(dataset_root / "agent3_train_samples_100.jsonl")
         DataProcessor.check_and_process_files(agent3_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
         args.data_path = cleaned_train_file_path
 
     elif args.type == 'merged':
-        merged_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/total_agent_train_samples.jsonl'
+        merged_file_path = str(dataset_root / "total_agent_train_samples.jsonl")
         # Merge long-term profiles (from agent1), short-term profiles (from agent2), and agent3's reverse inference fine-tuning data
         DataProcessor.merge_agent_files(agent1_path, agent2_path, agent3_path, merged_file_path)
 
-        cleaned_train_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/cleaned_total_agent_train_samples_all.jsonl'
-        cleaned_test_file_path = f'/home/ZhongLin/SMAC/finetune/data/{args.dataset}/cleaned_total_agent_train_samples_100.jsonl'
+        cleaned_train_file_path = str(dataset_root / "cleaned_total_agent_train_samples_all.jsonl")
+        cleaned_test_file_path = str(dataset_root / "cleaned_total_agent_train_samples_100.jsonl")
         DataProcessor.check_and_process_files(merged_file_path, cleaned_train_file_path, cleaned_test_file_path, test_size=100)
         args.data_path = cleaned_train_file_path
 
@@ -696,13 +713,13 @@ def main():
         args.data_path = f"dataset_all/{args.dataset}/train/{args.dataset}_train.jsonl"
 
     # Set dataset-specific parameters
-    args.max_item = {"nyc": 5091, "tky": 7851, "ca": 13630}.get(args.dataset, 5091)
+    args.max_item = DATASET_MAX_ITEM.get(args.dataset, 5091)
 
     # Set up model path and output directories
-    args.model_path = args.model_path + args.model
+    args.model_path = os.path.join(args.model_path, args.model)
     args.run_name = f'bs{args.batch_size}-gas{args.gradient_accumulation_steps}-ms{args.max_steps}-{args.type}-lr{args.learning_rate}'
     args.save_name = f'bs{args.batch_size}-gas{args.gradient_accumulation_steps}-ms{args.max_steps}-{args.type}-lr{args.learning_rate}'
-    args.output_dir = f"/home/ZhongLin/SMAC/finetune/results/{args.op_str}/sft-{args.dataset}/{args.save_name}"
+    args.output_dir = str(results_root / args.op_str / f"sft-{args.dataset}" / args.save_name)
 
     # Print arguments
     print("Parameter list:")
