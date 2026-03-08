@@ -4,8 +4,10 @@ import json
 import os
 import re
 import logging
+import pandas as pd
 from tqdm import tqdm
 from rag.RAG import *
+from config import DATASET_ROOT, LEGACY_DATASET_ROOT
 logging.basicConfig(level=logging.INFO)
 
 def extract_label_from_sample(sample):
@@ -348,7 +350,7 @@ def create_prompt_json(args, sample):
         "system": "You are an expert POI Predictor specialized in predicting the next Point of Interest (POI) a user will visit based on their trajectory.",
         "user": current_trajectory,
         "task": f"Predict the next POI ID for user_{user_id} based on their trajectory.",
-        "format": "Respond with a JSON dictionary in a markdown's fenced code block as follows:\n```json\n{\"next_poi_id\": [\"value1\", \"value2\", ..., \"value{args.top_k}\"]\n```"
+        "format": f"Respond with a JSON dictionary in a markdown's fenced code block as follows:\n```json\n{{\"next_poi_id\": [\"value1\", \"value2\", ..., \"value{args.top_k}\"]}}\n```"
     }
 
     return user_id, json.dumps(prompt), label
@@ -366,10 +368,21 @@ def access_poi_info(args, poi_id: int) -> tuple:
         tuple: 包含 POI ID, category, lat, lon 的元组。
                如果未找到，返回 (poi_id, "Unknown", 0.0, 0.0)。
     """
-    file_path = f"dataset/{args.dataset}/{args.dataset}_poi_info.csv"
+    dataset = args.dataset
+    primary_path = DATASET_ROOT / dataset / f"{dataset}_poi_info.csv"
+    legacy_path = LEGACY_DATASET_ROOT / dataset / f"{dataset}_poi_info.csv"
+    file_path = primary_path if primary_path.exists() else legacy_path
 
     try:
         # 读取CSV文件
+        if not file_path.exists():
+            logging.error(
+                "poi_info.csv not found. Expected one of: %s or %s. "
+                "Please place dataset files under dataset_all/<dataset>/.",
+                primary_path,
+                legacy_path,
+            )
+            return int(poi_id), "Unknown", 0.0, 0.0
         df = pd.read_csv(file_path)  # 确保文件路径正确
     except FileNotFoundError:
         logging.error(f"Error: 文件未找到，请检查路径 {file_path}。")
