@@ -10,15 +10,75 @@ Goal:
 import argparse
 import json
 import random
+import re
 import time
 from pathlib import Path
-from types import SimpleNamespace
+import sys
 
 from openai import OpenAI
 
+# Ensure project root is importable when running as a script.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from config import DATASET_ROOT, DATASET_MAX_ITEM
 from parser_tool import extract_predicted_pois
-from utils import clean_predicted_pois, create_prompt_ori
+
+
+def _clean_predicted_pois(predicted_pois, max_item):
+    cleaned_pois = []
+    seen = set()
+    for poi in predicted_pois:
+        try:
+            poi_id = int(poi)
+            if 1 <= poi_id <= max_item and poi_id not in seen:
+                cleaned_pois.append(poi_id)
+                seen.add(poi_id)
+        except (ValueError, TypeError):
+            continue
+    return cleaned_pois
+
+
+def _create_prompt_ori(top_k, sample):
+    messages = sample.get("messages", [])
+    user_id = None
+    label = None
+    current_trajectory = None
+
+    for msg in messages:
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            user_match = re.search(r'"user_id":\s*"?(\d+)"?', content)
+            if user_match:
+                user_id = user_match.group(1)
+            current_trajectory = content
+        elif msg.get("role") == "assistant":
+            content = msg.get("content", "")
+            try:
+                data = json.loads(content)
+                if isinstance(data, dict) and "next_poi_id" in data:
+                    label = data["next_poi_id"]
+                elif isinstance(data, int):
+                    label = data
+            except json.JSONDecodeError:
+                label_match = re.search(r'"next_poi_id":\s*(\d+)', content)
+                if label_match:
+                    label = label_match.group(1)
+
+    prompt = f"""You are an expert POI Predictor specialized in predicting the next Point of Interest (POI) a user will visit based on their trajectory.
+
+User Trajectory:
+{current_trajectory}
+
+Task: Predict the next POI ID for user_{user_id} based on their trajectory.
+
+Respond with a JSON dictionary in a markdown's fenced code block as follows:
+```json
+{{"next_poi_id": ["value1", "value2", ..., "value{top_k}"]}}
+```"""
+
+    return user_id, prompt, label
 
 
 class LocalSmokeTester:
@@ -86,16 +146,15 @@ class LocalSmokeTester:
         samples = self._load_samples()
         self._create_client()
 
-        mini_args = SimpleNamespace(top_k=self.args.top_k)
         max_item = DATASET_MAX_ITEM.get(self.args.dataset, 5091)
 
         results = []
         hit = 0
         for idx, sample in enumerate(samples, start=1):
-            user_id, prompt, label = create_prompt_ori(mini_args, sample)
+            user_id, prompt, label = _create_prompt_ori(self.args.top_k, sample)
             output_text = self._predict_one(prompt)
             raw_pois = extract_predicted_pois(output_text, self.args.top_k)
-            pred_pois = clean_predicted_pois(raw_pois, max_item)
+            pred_pois = _clean_predicted_pois(raw_pois, max_item)
 
             label_str = str(label)
             is_hit = label_str in [str(x) for x in pred_pois[: self.args.top_k]]
