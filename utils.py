@@ -1,5 +1,3 @@
-from agentscope.parsers import MarkdownJsonDictParser
-
 import json
 import os
 import re
@@ -9,6 +7,31 @@ from tqdm import tqdm
 from rag.RAG import *
 from config import DATASET_ROOT, LEGACY_DATASET_ROOT
 logging.basicConfig(level=logging.INFO)
+
+try:
+    # AgentScope API path used by older versions.
+    from agentscope.parsers import MarkdownJsonDictParser
+except Exception:
+    try:
+        # Some AgentScope builds expose parser under singular module name.
+        from agentscope.parser import MarkdownJsonDictParser  # type: ignore
+    except Exception:
+        class MarkdownJsonDictParser:  # type: ignore
+            """
+            Lightweight fallback parser used when AgentScope parser API is unavailable.
+            """
+
+            def __init__(self, content_hint=None, **kwargs):
+                self.content_hint = content_hint or {}
+                self.kwargs = kwargs
+
+            def parse(self, text):
+                try:
+                    if isinstance(text, str):
+                        return json.loads(text)
+                    return text
+                except Exception:
+                    return {"raw_text": text}
 
 def extract_label_from_sample(sample):
     """Extract next_poi_id as label from the 'assistant' message in the sample."""

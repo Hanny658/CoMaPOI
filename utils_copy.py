@@ -1,6 +1,3 @@
-
-from agentscope.parsers import MarkdownJsonDictParser
-
 import json
 import os
 import re
@@ -8,6 +5,25 @@ import logging
 from tqdm import tqdm
 from rag.RAG import *
 logging.basicConfig(level=logging.INFO)
+
+try:
+    from agentscope.parsers import MarkdownJsonDictParser
+except Exception:
+    try:
+        from agentscope.parser import MarkdownJsonDictParser  # type: ignore
+    except Exception:
+        class MarkdownJsonDictParser:  # type: ignore
+            def __init__(self, content_hint=None, **kwargs):
+                self.content_hint = content_hint or {}
+                self.kwargs = kwargs
+
+            def parse(self, text):
+                try:
+                    if isinstance(text, str):
+                        return json.loads(text)
+                    return text
+                except Exception:
+                    return {"raw_text": text}
 
 def extract_label_from_sample(sample):
     """从样本的 'assistant' 消息中提取 next_poi_id 作为标签。"""

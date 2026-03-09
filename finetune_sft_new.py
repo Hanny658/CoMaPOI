@@ -50,7 +50,6 @@ from trl import SFTTrainer, SFTConfig
 from peft import get_peft_model, LoraConfig
 from datasets import load_dataset
 
-from utils import convert_content_to_string
 from config import DATASET_MAX_ITEM, FINETUNE_DATA_ROOT, FINETUNE_RESULTS_ROOT
 
 

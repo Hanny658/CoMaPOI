@@ -202,6 +202,8 @@ def init_agents(args):
     Returns:
         tuple: (Profiler, Forecaster, Final_Predictor) - The initialized agents
     """
+    base_url = f"http://{args.host}:{args.port}/v1"
+
     # Configure Agent 1 (Profiler)
     model_config_agent1 = {
         "config_name": f"{args.agent1_api}",
@@ -209,7 +211,7 @@ def init_agents(args):
         "model_name": f"{args.agent1_api}",
         "api_key": "EMPTY",
         "client_args": {
-            "base_url": f"http://localhost:{args.port}/v1"
+            "base_url": base_url
         },
         "generate_args": {
             "temperature": args.temperature,
@@ -226,7 +228,7 @@ def init_agents(args):
         "model_name": f"{args.agent2_api}",
         "api_key": "EMPTY",
         "client_args": {
-            "base_url": f"http://localhost:{args.port}/v1"
+            "base_url": base_url
         },
         "generate_args": {
             "temperature": args.temperature,
@@ -243,7 +245,7 @@ def init_agents(args):
         "model_name": f"{args.agent3_api}",
         "api_key": "EMPTY",
         "client_args": {
-            "base_url": f"http://localhost:{args.port}/v1"
+            "base_url": base_url
         },
         "generate_args": {
             "temperature": args.temperature,
@@ -810,6 +812,7 @@ def main():
     parser.add_argument('--agent3_api', type=str, default='agent3', help='API name for Agent 3 (Final_Predictor)')
     parser.add_argument('--num_candidate', type=int, default=25, help='Number of candidate POIs')
     parser.add_argument('--store_save_name', action="store_true", help='Manually provide storage name')
+    parser.add_argument('--host', type=str, default='localhost', help='Host for API server')
     parser.add_argument('--port', type=int, default=7863, help='Port for API server')
     parser.add_argument('--agent1_max_tokens', type=int, default=256, help='Max tokens for Agent 1')
     parser.add_argument('--agent2_max_tokens', type=int, default=256, help='Max tokens for Agent 2')
